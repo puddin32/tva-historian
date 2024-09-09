@@ -2,7 +2,8 @@
 $baseApiUrl = "http://historian.tva.gov"
 
 # Define your array of servers
-$servers = @("TP")
+#$servers = @("TP")
+$servers = "AC","AK","AT","BT","CC","CT","CU","GA","GC","GT","HY","JC","JT","KI","KT","LC","LT","MC","MT","PC","SC","SH","TP"
 
 # Define your start and end pointids
 $startPointId = 1
