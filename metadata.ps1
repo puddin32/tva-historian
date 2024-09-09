@@ -6,7 +6,7 @@ $servers = @("TP")
 
 # Define your start and end pointids
 $startPointId = 1
-$endPointId = 10000
+$endPointId = 300000
 
 # Create an array of pointids from start to end
 $pointidArray = @( $startPointId..$endPointId )
