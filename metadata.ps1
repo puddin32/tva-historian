@@ -2,20 +2,17 @@
 $baseApiUrl = "http://historian.tva.gov"
 
 # Define your array of servers
-##$servers = @("AC","AK","AT","BT","CC","CT","CU","GA","GC","GT","HY","JC","JT","KI","KT","LC","LT","MC","MT","PC","SC","SH")
-$servers =  @("TP")
+$servers = @("TP")
+
 # Define your start and end pointids
 $startPointId = 1
-$endPointId = 1000
-
-# Define how many points we want to store in each file
-$pointsPerFile = 2000
-
-# Define how many points will be reqeusted at once. This is to avoid errors with url character limits.
-$chunkSize = 20
+$endPointId = 10000
 
 # Create an array of pointids from start to end
 $pointidArray = @( $startPointId..$endPointId )
+
+# Define the character limit
+$characterLimit = 249
 
 # Define the headers for the REST API call
 $headers = @{
@@ -28,12 +25,12 @@ $desktopPath = [Environment]::GetFolderPath("Desktop")
 $resultsPath = Join-Path -Path $desktopPath -ChildPath $timestamp
 New-Item -Path $resultsPath -ItemType Directory
 
-# Loop through each server
+# Loop through each server. If you don't have access (i.e. get an error) then skip the server.
 foreach ($server in $servers) {
     # Test the server connection
     $testurl = "$baseApiUrl/$server/rest/help"
     try {
-        $testResponse = Invoke-RestMethod -Uri $testurl -Method Get -ErrorAction Stop 
+        $testResponse = Invoke-RestMethod -Uri $testurl -Method Get -ErrorAction Stop -UseDefaultCredentials
     }
     catch {
         if ($_.Exception.Response.StatusCode.Value__ -eq 503) {
@@ -51,27 +48,29 @@ foreach ($server in $servers) {
     $serverPath = Join-Path -Path $resultsPath -ChildPath $server
     New-Item -Path $serverPath -ItemType Directory
 
-    # Define the output file path
-    $outputFile = Join-Path -Path $serverPath -ChildPath "$server-output.json"
+    # Initialize the starting index for the pointidArray
+    $startIndex = 0
 
-    # Initialize an array to store the responses
-    $responses = @()
+    # Loop through the pointidArray to create chunks
+    while ($startIndex -lt $pointidArray.Count) {
+        # Initialize the chunk size
+        $chunkSize = 0
+        $charCount = 0
 
-    # Split the pointidArray into chunks of $chunkSize
-    $chunks = [System.Linq.Enumerable]::Range(0, $pointidArray.Count) |
-    Where-Object { $_ % $chunkSize -eq 0 } |
-    ForEach-Object { $pointidArray[$_..($_ + $chunkSize-1)] }
+        # Calculate the chunk size based on the character limit
+        while ($charCount -lt $characterLimit -and $startIndex + $chunkSize -lt $pointidArray.Count) {
+            $charCount += $pointidArray[$startIndex + $chunkSize].ToString().Length + 1 # +1 for the comma
+            $chunkSize++
+        }
 
-    # Initialize an array to store the responses
-    $responses = @()
+        # Debugging output
+        Write-Host "Chunk size: $chunkSize, Char count: $charCount, Start index: $startIndex"
 
-    # Initialize a counter for the chunks
-    $chunkCounter = 0
+        # Get the chunk of pointids
+        $chunk = $pointidArray[$startIndex..($startIndex + $chunkSize - 1)]
 
-    # Loop through each chunk of pointids
-    foreach ($chunk in $chunks) {
-        # Increment the chunk counter
-        $chunkCounter++
+        # Increment the start index by the chunk size
+        $startIndex += $chunkSize
 
         # Join the chunk back into a comma delimited string
         $pointidList = $chunk -join ','
@@ -80,36 +79,14 @@ foreach ($server in $servers) {
         $url = "$baseApiUrl/$server/rest/read/metadata/$pointidList"
 
         # Make the REST API call with the headers
-        $response = Invoke-RestMethod -Uri $url -Headers $headers
+        $response = Invoke-RestMethod -Uri $url -Headers $headers -UseDefaultCredentials
 
-        # Add the response to the responses array
-        $responses += $response
+        # Define the output file path with the server name and first and last point of the chunk
+        $firstPoint = $chunk[0]
+        $lastPoint = $chunk[-1]
+        $outputFile = Join-Path -Path $serverPath -ChildPath "$server-output-$firstPoint-$lastPoint.json"
 
-        # If the chunk counter is a multiple of 100, save the responses to a file and clear the responses array
-        if ($chunkCounter % $pointsPerFile -eq 0) {
-            # Convert the entire responses array to JSON
-            $json = $responses | ConvertTo-Json
-
-            # Define the output file path with the chunk counter
-            $outputFile = Join-Path -Path $serverPath -ChildPath "$server-output-$chunkCounter.json"
-
-            # Write the JSON to the output file
-            $json | Out-File -FilePath $outputFile
-
-            # Clear the responses array
-            $responses = @()
-        }
-    }
-
-    # Save any remaining responses to a file
-    if ($responses.Count -gt 0) {
-        # Convert the entire responses array to JSON
-        $json = $responses | ConvertTo-Json
-
-        # Define the output file path with the chunk counter
-        $outputFile = Join-Path -Path $serverPath -ChildPath "$server-output-$chunkCounter.json"
-
-        # Write the JSON to the output file
-        $json | Out-File -FilePath $outputFile
+        # Convert the response to JSON and write to the output file
+        $response | ConvertTo-Json | Out-File -FilePath $outputFile
     }
 }
