@@ -25,6 +25,9 @@ $desktopPath = [Environment]::GetFolderPath("Desktop")
 $resultsPath = Join-Path -Path $desktopPath -ChildPath $timestamp
 New-Item -Path $resultsPath -ItemType Directory
 
+# Define the number of parallel jobs
+$maxParallelJobs = 5
+
 # Loop through each server. If you don't have access (i.e. get an error) then skip the server.
 foreach ($server in $servers) {
     # Test the server connection
@@ -51,6 +54,9 @@ foreach ($server in $servers) {
     # Initialize the starting index for the pointidArray
     $startIndex = 0
 
+    # Initialize an array to store job objects
+    $jobs = @()
+
     # Loop through the pointidArray to create chunks
     while ($startIndex -lt $pointidArray.Count) {
         # Initialize the chunk size
@@ -62,9 +68,6 @@ foreach ($server in $servers) {
             $charCount += $pointidArray[$startIndex + $chunkSize].ToString().Length + 1 # +1 for the comma
             $chunkSize++
         }
-
-        # Debugging output
-        Write-Host "Chunk size: $chunkSize, Char count: $charCount, Start index: $startIndex"
 
         # Get the chunk of pointids
         $chunk = $pointidArray[$startIndex..($startIndex + $chunkSize - 1)]
@@ -78,15 +81,30 @@ foreach ($server in $servers) {
         # Define the REST API URL
         $url = "$baseApiUrl/$server/rest/read/metadata/$pointidList"
 
-        # Make the REST API call with the headers
-        $response = Invoke-RestMethod -Uri $url -Headers $headers -UseDefaultCredentials
-
         # Define the output file path with the server name and first and last point of the chunk
         $firstPoint = $chunk[0]
         $lastPoint = $chunk[-1]
         $outputFile = Join-Path -Path $serverPath -ChildPath "$server-output-$firstPoint-$lastPoint.json"
 
-        # Convert the response to JSON and write to the output file
-        $response | ConvertTo-Json | Out-File -FilePath $outputFile
+        # Start a new job for the REST API call
+        $job = Start-Job -ScriptBlock {
+            param ($url, $headers, $outputFile)
+            $response = Invoke-RestMethod -Uri $url -Headers $headers -UseDefaultCredentials
+            $response | ConvertTo-Json | Out-File -FilePath $outputFile
+        } -ArgumentList $url, $headers, $outputFile
+
+        # Add the job to the jobs array
+        $jobs += ,$job
+
+        # Wait for jobs to complete if the maximum number of parallel jobs is reached
+        while ($jobs.Count -ge $maxParallelJobs) {
+            $jobs = $jobs | Where-Object { $_.State -eq 'Running' }
+            Start-Sleep -Seconds 1
+        }
     }
+
+    # Wait for all remaining jobs to complete
+    $jobs | ForEach-Object { $_ | Wait-Job }
 }
+
+Write-Host "All jobs completed successfully."
