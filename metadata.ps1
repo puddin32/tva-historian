@@ -2,8 +2,7 @@
 $baseApiUrl = "http://historian.tva.gov"
 
 # Define your array of servers
-##$servers =  @("server1","server2")
-%servers = @("TP")
+$servers = @("TP")
 
 # Define your start and end pointids
 $startPointId = 1
@@ -26,7 +25,7 @@ $desktopPath = [Environment]::GetFolderPath("Desktop")
 $resultsPath = Join-Path -Path $desktopPath -ChildPath $timestamp
 New-Item -Path $resultsPath -ItemType Directory
 
-# Loop through each server. If you don't have access (i.e. get an error) then skp the server.
+# Loop through each server. If you don't have access (i.e. get an error) then skip the server.
 foreach ($server in $servers) {
     # Test the server connection
     $testurl = "$baseApiUrl/$server/rest/help"
@@ -63,6 +62,9 @@ foreach ($server in $servers) {
             $charCount += $pointidArray[$startIndex + $chunkSize].ToString().Length + 1 # +1 for the comma
             $chunkSize++
         }
+
+        # Debugging output
+        Write-Host "Chunk size: $chunkSize, Char count: $charCount, Start index: $startIndex"
 
         # Get the chunk of pointids
         $chunk = $pointidArray[$startIndex..($startIndex + $chunkSize - 1)]
